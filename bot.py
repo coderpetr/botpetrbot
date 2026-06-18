@@ -12,7 +12,7 @@ import requests
 BOT_TOKEN = "8855038816:AAGZX3HG9b_ziJe-zRmCoezQ18psrzR1BDM"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Твой личный рабочий ключ от облачного шлюза распознавания чеков
+# Твой рабочий ключ от облачного шлюза распознавания
 OCR_API_KEY = "K87579063988957" 
 
 # =====================================================================
@@ -60,12 +60,12 @@ TEXT_BURGERS = (
 
 # Каталог доступных товаров и цен
 PRODUCTS = {
-    "delivery": {"name": "⚡️ Обход доставки Яндекс/Купер (0 руб)", "price": 10, "reply_text": TEXT_DELIVERY},
-    "wb_sale": {"name": "📦 Секретный софт для ликвидаций Wildberries", "price": 10, "reply_text": TEXT_WB_SALE},
-    "burgers": {"name": "🍔 Схема: Бургеры за 1 рубль", "price": 10, "reply_text": TEXT_BURGERS}
+    "delivery": {"name": "⚡️ Обход доставки Яндекс/Купер (0 руб)", "price": 250, "reply_text": TEXT_DELIVERY},
+    "wb_sale": {"name": "📦 Секретный софт для ликвидаций Wildberries", "price": 490, "reply_text": TEXT_WB_SALE},
+    "burgers": {"name": "🍔 Схема: Бургеры за 1 рубль", "price": 190, "reply_text": TEXT_BURGERS}
 }
 
-# Оперативная память для фиксации выбора пользователя { user_id: "id_товара" }
+# Память для фиксации выбора пользователя { user_id: "id_товара" }
 user_orders = {}
 
 # =====================================================================
@@ -75,7 +75,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Бот запущен и стабильно работает на OCR-шлюзе!"
+    return "Бот активен, шлюз OCR подключен по прямому каналу передачи файлов!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -114,7 +114,7 @@ def handle_payment_selection(call):
         payment_text = (
             f"🛒 *Ты выбрал товар:* {product['name']}\n"
             f"💵 *К оплате строго:* {product['price']} руб.\n\n"
-            f"💳 *Реквизиты для оплаты (т-банк / СБП):*\n"
+            f"💳 *Реквизиты для оплаты (Сбербанк / СБП):*\n"
             f"По номеру телефона: `+79775819442`\n\n"
             f"⚠️ *Важно:* Переводи точную сумму ({product['price']} руб.). "
             f"После перевода *отправь скриншот чека* прямо в этот чат!"
@@ -147,32 +147,43 @@ def handle_receipt(message):
     status_msg = bot.reply_to(message, "⏳ Безопасный шлюз считывает данные с чека, подожди пару секунд...")
 
     try:
-        # 1. Берем прямую безопасную ссылку на картинку с серверов самого Телеграма
+        # 1. Скачиваем фото чека напрямую из Telegram в оперативную память (без сохранения на диск)
         file_info = bot.get_file(message.photo[-1].file_id)
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+        downloaded_file = bot.download_file(file_info.file_path)
 
-        # 2. Делаем мгновенный POST запрос на удаленный мощный сервер OCR.Space
+        # 2. Настраиваем параметры для OCR.Space
+        # Используем OCREngine='2', так как он идеально подходит для чеков и скриншотов с телефонов
         payload = {
-            'url': file_url,
             'apikey': OCR_API_KEY,
             'language': 'rus',
-            'isOverlayRequired': False
+            'isOverlayRequired': False,
+            'OCREngine': '2' 
         }
         
-        response = requests.post('https://api.ocr.space/parse/image', data=payload, timeout=15)
+        # Передаем файл в теле запроса
+        files = {
+            'file': ('receipt.jpg', downloaded_file, 'image/jpeg')
+        }
+        
+        # Отправляем POST-запрос с файлом
+        response = requests.post('https://api.ocr.space/parse/image', data=payload, files=files, timeout=20)
         result = response.json()
 
         # 3. Разбираем ответ от сервера распознавания
-        if result.get("OCRExitCode") == 1:
+        if result.get("OCRExitCode") == 1 and result.get("ParsedResults"):
             raw_text = result["ParsedResults"][0]["ParsedText"]
-            print(f"[DEBUG] Распознанный текст с чека: {raw_text}")
+            print(f"[DEBUG] Текст с чека: {raw_text}")
             
-            # Вытаскиваем все числа из текста регулярным выражением
+            if not raw_text.strip():
+                bot.edit_message_text("❌ Текст на картинке не обнаружен. Попробуй отправить несжатый скриншот или сделай его более четким.", chat_id=message.chat.id, message_id=status_msg.message_id)
+                return
+
+            # Вытаскиваем все числа из текста чека
             numbers = re.findall(r'\b\d+\b', raw_text)
             found_prices = [int(num) for num in numbers]
-            print(f"[DEBUG] Найденные числа: {found_prices}")
+            print(f"[DEBUG] Найденные числа на чеке: {found_prices}")
 
-            # 4. Проверяем, совпала ли цена
+            # 4. Проверяем цену
             if expected_price in found_prices:
                 try:
                     bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
@@ -186,16 +197,18 @@ def handle_receipt(message):
             else:
                 bot.edit_message_text(
                     f"❌ *Сумма не найдена.*\n"
-                    f"Выбранный товар стоит *{expected_price} руб.*, но система автоматической проверки не увидела это число на чеке.\n\n"
-                    f"Убедись, что скриншот четкий, не обрезанный и ты перевел верную сумму.",
+                    f"Система хочет увидеть на чеке число *{expected_price}*, но среди найденных чисел его нет.\n\n"
+                    f"Убедись, что на скриншоте четко видна сумма перевода.",
                     chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
                 )
         else:
-            bot.edit_message_text("❌ Сервер не смог прочитать текст на картинке. Пожалуйста, сделай более четкий скриншот чека.", chat_id=message.chat.id, message_id=status_msg.message_id)
+            error_details = result.get("ErrorMessage", "Неизвестная ошибка шлюза")
+            print(f"[OCR ERROR DETAILS]: {error_details}")
+            bot.edit_message_text("❌ Не удалось считать текст. Пожалуйста, сделай другой скриншот чека.", chat_id=message.chat.id, message_id=status_msg.message_id)
 
     except Exception as e:
         print(f"[ERROR MAIN]: {e}")
-        bot.edit_message_text("❌ Ошибка обработки чека. Пожалуйста, попробуй отправить скриншот еще раз через минуту.", chat_id=message.chat.id, message_id=status_msg.message_id)
+        bot.edit_message_text("❌ Ошибка соединения со шлюзом проверки. Попробуй еще раз через минуту.", chat_id=message.chat.id, message_id=status_msg.message_id)
 
 
 @bot.message_handler(content_types=['text'])
