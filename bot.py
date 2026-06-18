@@ -63,17 +63,17 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 PRODUCTS = {
     "delivery": {
         "name": "⚡️ Обход доставки Яндекс/Купер (0 руб)",
-        "price": 250,
+        "price": 10,
         "reply_text": TEXT_DELIVERY
     },
     "wb_sale": {
         "name": "📦 Секретный софт для ликвидаций Wildberries",
-        "price": 490,
+        "price": 10,
         "reply_text": TEXT_WB_SALE
     },
     "burgers": {
         "name": "🍔 Схема: Бургеры за 1 рубль в сетевых рестах",
-        "price": 190,
+        "price": 10,
         "reply_text": TEXT_BURGERS
     }
 }
