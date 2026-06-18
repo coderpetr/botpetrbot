@@ -53,7 +53,7 @@ TEXT_BURGERS = (
 # =====================================================================
 # 2. НАСТРОЙКИ ТОКЕНОВ И КАТАЛОГ ТОВАРОВ
 # =====================================================================
-BOT_TOKEN = "8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk"
+BOT_TOKEN = "8855038816:AAGZX3HG9b_ziJe-zRmCoezQ18psrzR1BDM"
 GEMINI_API_KEY = "AQ.Ab8RN6IDCjCtVYzCJUYI_n_jyJIfohbF7c2TePYAlP5iga1Xew"
 
 bot = telebot.TeleBot(BOT_TOKEN)
