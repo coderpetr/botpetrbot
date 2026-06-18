@@ -1,218 +1,117 @@
-import telebot
-from telebot import types
-import random
-import requests
 import os
+import threading
+import telebot
 from flask import Flask
-from threading import Thread
+from google import genai
+from google.genai import types
 
-# ==================== НАСТРОЙКИ ОБМАНА RENDER (FLASK) ====================
-app = Flask('')
+# =====================================================================
+# 1. НАСТРОЙКИ ТОКЕНОВ (Вставь сюда свои ключи)
+# =====================================================================
+BOT_TOKEN = "8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk"
+GEMINI_API_KEY = "AQ.Ab8RN6IDCjCtVYzCJUYI_n_jyJIfohbF7c2TePYAlP5iga1Xew"
+
+# Инициализируем клиента Telegram и нейросеть Google
+bot = telebot.TeleBot(BOT_TOKEN)
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# =====================================================================
+# 2. ФЕЙКОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБХОДА БЛОКИРОВКИ RENDER (20 минут)
+# =====================================================================
+app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Бот онлайн!"
+    # На эту страницу будет заходить Cron-Job.org каждые 5 минут
+    return "Бот активен и работает 24/7!"
 
-def run_web():
-    # Render сам передает нужный порт в переменные окружения
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+def run_flask():
+    # Render передает порт через переменную окружения PORT, по умолчанию ставим 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
-# Сразу запускаем веб-сервер в отдельном потоке, чтобы Render увидел открытый порт
-Thread(target=run_web).start()
+# =====================================================================
+# 3. ЛОГИКА ТЕЛЕГРАМ-БОТА (РАСПОЗНАВАНИЕ ЧЕКОВ)
+# =====================================================================
 
-# ==================== НАСТРОЙКИ БОТА ====================
-BOT_TOKEN = '8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk'  # Твой токен от @BotFather
-bot = telebot.TeleBot(BOT_TOKEN)
-
-CARD_NUMBER = "+79775819442"  # Номер телефона для СБП или номер карты
-BANK_NAME = "Т-Банк"   # Название твоего банка
-
-# Твой ID в Telegram (можно узнать в боте @userinfobot)
-ADMIN_ID = 123456789  
-
-# ==================== БАЗА ТОВАРОВ И ЛАЙФХАКОВ ====================
-PRODUCTS = {
-    "🍔 Еда и Фастфуд": {
-        "Бургеры за 1 рубль (50 руб)": {
-            "price": 50,
-            "items": [
-                "🎁 **ТВОЙ ЗАКАЗ ВЫПОЛНЕН!**\n\n"
-                "📖 **ГАЙД: Как брать комбо-обеды или бургеры за 1 рубль**\n\n"
-                "1️⃣ У всех крупных сетей есть мобильные приложения с программой лояльности, где за первую регистрацию начисляют приветственные баллы или дают купоны на позиции за 1 рубль.\n\n"
-                "2️⃣ Скачай официальное приложение «Вкусно — и точка» или «Бургер Кинг».\n\n"
-                "3️⃣ Зайди на любой сайт СМС-активаций (например, `5sim.net` или `sms-activate.org`) и купи виртуальный номер для нужного приложения. Стоит он всего 3–7 рублей.\n\n"
-                "4️⃣ Зарегистрируй новый аккаунт на этот номер, зайди в раздел 'Акции' или 'Купоны' и забери приветственный бонус.\n\n"
-                "5️⃣ **ВАЖНО:** Чтобы сделать повторный круг, тебе нужно не просто выйти из аккаунта, а полностью удалить приложение и скачать заново, либо очистить его КЭШ и ДАННЫЕ в настройках телефона. Тогда система не поймет, что это тот же смартфон!"
-            ]
-        },
-        "Обход платной доставки (40 руб)": {
-            "price": 40,
-            "items": [
-                "🎁 **ТВОЙ ЗАКАЗ ВЫПОЛНЕН!**\n\n"
-                "📖 **ЛАЙФХАК: Как обходить платную доставку**\n\n"
-                "🔹 **Способ для Купера/Мегамаркета:**\n"
-                "Заходи в корзину и добивай сумму заказа любыми дешевыми товарами (например, фирменными пакетами по 3 рублей) до порога, при котором доставка становится бесплатной. "
-                "Когда заказ уйдет в работу и тебе позвонит сборщик из магазина, просто вежливо скажи: *«Ой, я случайно добавил в корзину лишние пакеты, уберите их, пожалуйста, из чека»*. "
-                "Сборщик уберет их через свой терминал, итоговая сумма уменьшится, а бесплатная доставка от сервиса останется зафиксированной!\n\n"
-                "🔹 **Способ для Яндекс Еды:**\n"
-                "Если в приложении горит 'Повышенный спрос' и доставка стоит 299 рублей, зайди на сайт Яндекс Еды через браузер на компе (или включи в мобильном браузере режим 'Версия для ПК') в режиме Инкогнито. "
-                "Веб-алгоритмы Яндекса часто обнуляют стоимость доставки для 'новых' браузеров, чтобы привлечь клиента, пока приложение пытается содрать максимум."
-            ]
-        }
-    },
-    "🛍 Маркетплейсы": {
-        "Секретные скидки Wildberries (60 руб)": {
-            "price": 60,
-            "items": [
-                "🎁 **ТВОЙ ЗАКАЗ ВЫПОЛНЕН!**\n\n"
-                "📖 **МАНУАЛ: Скрытые скидки до 90% на WB и Ozon**\n\n"
-                "1️⃣ **Метод «Брошенная корзина»:**\n"
-                "Закинь нужный товар в корзину и не оплачивай его 2–3 дня. В панели продавца отображается статистика брошенных корзин, и алгоритмы площадки сами предлагают продавцу выдать автоматическую персональную скидку тем, кто сомневается. Через пару дней цена на этот товар для тебя снизится, и прилетит пуш.\n\n"
-                "2️⃣ **Метод поиска ликвидаций:**\n"
-                "Вбивай в поисковую строку маркетплейса точные фразы: *«Ликвидация остатков»*, *«Утилизация склада»*, *«Брак упаковки»*. Продавцы, у которых заканчивается оплаченный период хранения на складах WB, сливают новые товары за копейки, чтобы не платить за утилизацию. В обычную выдачу эти карточки не попадают, их нужно искать руками по этим ключам."
-            ]
-        }
-    },
-    "🎵 Музыка и Кино": {
-        "Музыка без ограничений (40 руб)": {
-            "price": 40,
-            "items": [
-                "🎁 **ТВОЙ ЗАКАЗ ВЫПОЛНЕН!**\n\n"
-                "📖 **ИНСТРУКЦИЯ: Бесплатная музыка без рекламы**\n\n"
-                "🎵 **Для Яндекс Музыки:**\n"
-                "Не плати за подписку на телефоне. Открой мобильный браузер (Safari, Chrome), зайди на сайт Яндекс Музыки и в настройках браузера нажми **'Запросить настольный веб-сайт' (Версия для ПК)**. На ПК-версии сайта Яндекс полностью отключает ограничения на переключение треков и не просит подписку. Слушай сколько влезет.\n\n"
-                "🎵 **Для VK Музыки:**\n"
-                "Ограничение в 30 минут фонового прослушивания легко обходится. Создай свой приватный Telegram-канал. Воспользуйся бесплатным ботом вроде `@vkmusic_bot`, чтобы скачать свои любимые треки в формате MP3 прямо в Telegram. Перешли их в свой канал. В Телеграме встроен идеальный плеер, который работает в фоне, кэширует музыку без интернета и вообще не имеет рекламы."
-            ]
-        }
-    }
-}
-
-user_orders = {}
-
-# ==================== ЛОГИКА БОТА ====================
+# Приветственный текст при команде /start
 @bot.message_handler(commands=['start'])
-def start(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for category in PRODUCTS.keys():
-        markup.add(types.KeyboardButton(category))
-    
-    bot.send_message(
-        message.chat.id, 
-        "🤖 **Добро пожаловать в маркетплейс лайфхаков!**\n\nВыбери категорию товара в меню ниже 👇", 
-        reply_markup=markup, 
-        parse_mode="Markdown"
+def send_welcome(message):
+    bot.reply_to(
+        message, 
+        "Привет! Я твой автоматический бот-помощник.\n"
+        "Отправь мне скриншот чека Сбербанка, и я сразу скажу сумму перевода!"
     )
 
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    chat_id = message.chat.id
-    text = message.text
-
-    if text == "/admin":
-        if chat_id == ADMIN_ID:
-            stats = "📊 **Статистика маркетплейса:**\n\n"
-            for category, p_dict in PRODUCTS.items():
-                stats += f"📂 Категория: {category}\n"
-                for p_name, p_data in p_dict.items():
-                    count = len(p_data["items"])
-                    stats += f" ├ {p_name} — в наличии: {count} шт.\n"
-            bot.send_message(chat_id, stats, parse_mode="Markdown")
-        else:
-            bot.send_message(chat_id, "Маркетплейс работает в штатном режиме. Используй меню.")
-        return
-
-    if text in PRODUCTS:
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        for product_name in PRODUCTS[text].keys():
-            markup.add(types.KeyboardButton(product_name))
-        markup.add(types.KeyboardButton("⬅️ В главное меню"))
-        
-        bot.send_message(chat_id, f"Выбрана категория: *{text}*. Выбери товар:", reply_markup=markup, parse_mode="Markdown")
-        return
-
-    if text == "⬅️ В главное меню":
-        start(message)
-        return
-
-    selected_product = None
-    selected_category = None
-    
-    for category, p_dict in PRODUCTS.items():
-        if text in p_dict:
-            selected_category = category
-            selected_product = p_dict[text]
-            break
-
-    if selected_product:
-        if len(selected_product["items"]) == 0:
-            bot.send_message(chat_id, "⚠️ Этот лайфхак временно распродан!")
-            return
-
-        price = selected_product["price"]
-        secret_code = str(random.randint(1000, 9999))
-        
-        user_orders[chat_id] = {
-            "category": selected_category,
-            "product_name": text,
-            "price": price,
-            "code": secret_code
-        }
-        
-        pay_text = (
-            f"📥 **Оформление заказа: {text}**\n\n"
-            f"1. Переведи **{price} рублей** по номеру через СБП:\n`{CARD_NUMBER}`\n"
-            f"Банк получателя: **{BANK_NAME}**\n\n"
-            f"2. ⚠️ **ОБЯЗАТЕЛЬНО** в сообщении получателю (комментарии к переводу) укажи этот код: `{secret_code}`\n\n"
-            f"3. Сделай **скриншот чека** об оплате и **отправь его сюда как ФОТО**. Текстовые сообщения бот автоматически отклоняет!"
-        )
-        bot.send_message(chat_id, pay_text, parse_mode="Markdown")
-        return
-
-    bot.send_message(chat_id, "Пожалуйста, используй кнопки меню для навигации.")
-
-# ==================== ПРОВЕРКА ЧЕКОВ (OCR НЕЙРОСЕТЬ) ====================
+# Обработчик входящих фотографий (чеков)
 @bot.message_handler(content_types=['photo'])
-def handle_photo(message):
-    chat_id = message.chat.id
-    
-    if chat_id not in user_orders:
-        bot.send_message(chat_id, "Сначала выбери товар в меню!")
-        return
-
-    order = user_orders[chat_id]
-    price_str = str(order["price"])
-    
-    bot.send_message(chat_id, f"🔍 Проверяю чек на сумму {price_str} руб. и код {order['code']}... Подожди.")
-
+def handle_receipt(message):
     try:
-        file_info = bot.get_file(message.photo[-1].file_id)
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-        
-        ocr_url = f"https://api.ocr.space/parse/imageurl?apikey=helloworld&url={file_url}&language=rus"
-        response = requests.get(ocr_url).json()
-        
-        if response.get("ParsedResults"):
-            extracted_text = response["ParsedResults"][0]["ParsedText"].lower()
-            
-            if order["code"] in extracted_text and (price_str in extracted_text or "руб" in extracted_text):
-                if any(x in extracted_text for x in ["выполнено", "успешно", "перевод", "зачисление", "tinkoff", "sberbank", "сбербанк"]):
-                    current_item = PRODUCTS[order["category"]][order["product_name"]]["items"][0]
-                    
-                    bot.send_message(chat_id, current_item, parse_mode="Markdown")
-                    del user_orders[chat_id]
-                else:
-                    bot.send_message(chat_id, "❌ Система безопасности: На скриншоте не найдены маркеры банка (статус 'Успешно' или 'Выполнено').")
-            else:
-                bot.send_message(chat_id, f"❌ Ошибка. На чеке должен быть четко виден твой уникальный код `{order['code']}` и сумма {price_str} руб.")
-        else:
-            bot.send_message(chat_id, "Не удалось распознать картинку. Пришли четкий, несжатый скриншот чека.")
-            
-    except Exception as e:
-        bot.send_message(chat_id, "Ошибка шлюза проверки чеков. Попробуй скинуть скриншот еще раз.")
+        # Отправляем промежуточный статус пользователю
+        status_msg = bot.reply_to(message, "⏳ Распознаю чек, подожди пару секунд...")
 
-# ==================== ЗАПУСК БОТА (В САМОМ КОНЦЕ!) ====================
+        # Скачиваем самую большую (качественную) версию фото из сообщения
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        # Конвертируем байты фотографии для отправки в Gemini
+        image_part = types.Part.from_bytes(
+            data=downloaded_file,
+            mime_type='image/jpeg'
+        )
+
+        # Строгий промпт-инструкция для искусственного интеллекта
+        prompt = (
+            "Ты — эксперт по распознаванию финансовых документов. Перед тобой скриншот чека "
+            "или успешного перевода из банковского приложения (например, Сбербанк). "
+            "Внимательно найди финальную сумму операции (она обычно идет после слов 'Сумма', "
+            "'Сумма перевода', 'Размер платежа' или указана крупным шрифтом с символом рубля ₽).\n"
+            "Выведи ТОЛЬКО эту сумму цифрами. Если есть копейки, укажи их через точку (например, 500 или 1250.50).\n"
+            "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать буквы, валюту (руб, ₽), пробелы между цифрами (пиши 10000 вместо 10 000) "
+            "или любые другие пояснения. Если на картинке вообще нет чека или невозможно найти сумму, "
+            "напиши ровно одно слово: ОШИБКА"
+        )
+
+        # Делаем запрос к легкой и быстрой модели Gemini 2.5 Flash
+        response = ai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[image_part, prompt]
+        )
+
+        # Очищаем ответ от случайных пробелов или переносов строк
+        result_text = response.text.strip()
+        print(f"[DEBUG] Gemini ответила на чек: '{result_text}'")
+        # Проверяем, справилась ли нейросеть
+        if "ОШИБКА" in result_text or not result_text:
+            bot.edit_message_text(
+                "❌ Не удалось распознать сумму на этом чеке. Убедись, что это чек Сбера и фото четкое.", 
+                chat_id=message.chat.id, 
+                message_id=status_msg.message_id
+            )
+        else:
+            # Успех! Переменная result_text хранит чистую сумму (например, 500)
+            # Здесь ты можешь дописать логику начисления баланса в базу данных
+            bot.edit_message_text(
+                f"✅ Чек успешно распознан!\nСумма платежа: *{result_text}* руб.", 
+                chat_id=message.chat.id, 
+                message_id=status_msg.message_id,
+                parse_mode="Markdown"
+            )
+
+    except Exception as e:
+        print(f"Ошибка при обработке фотографии: {e}")
+        bot.reply_to(message, "Произошла внутренняя ошибка при чтении фото. Попробуй позже.")
+
+# =====================================================================
+# 4. ЗАПУСК ВСЕЙ СИСТЕМЫ
+# =====================================================================
 if __name__ == '__main__':
-    print("Магазин лайфхаков успешно запущен и готов к работе...")
+    print("Старт фонового веб-сервера для Render...")
+    # Запускаем Flask в отдельном потоке, чтобы он не мешал боту слушать сообщения
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    print("Старт Telegram бота...")
+    # Запускаем бесконечный опрос серверов Телеграма
     bot.infinity_polling()
