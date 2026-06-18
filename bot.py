@@ -6,7 +6,12 @@ from telebot import types
 from flask import Flask
 from PIL import Image
 import pytesseract
-
+import os
+# Принудительная установка Tesseract прямо через консоль сервера при старте
+print("Проверяем наличие Tesseract OCR в системе...")
+if os.system("tesseract --version") != 0:
+    print("Tesseract не найден. Устанавливаю системные пакеты...")
+    os.system("apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-rus")
 # =====================================================================
 # 1. НАСТРОЙКИ ТОКЕНОВ И ТОВАРОВ
 # =====================================================================
