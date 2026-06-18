@@ -2,12 +2,11 @@ import telebot
 from telebot import types
 import random
 import requests
-
-
 import os
 from flask import Flask
 from threading import Thread
 
+# ==================== НАСТРОЙКИ ОБМАНА RENDER (FLASK) ====================
 app = Flask('')
 
 @app.route('/')
@@ -18,14 +17,18 @@ def run_web():
     # Render сам передает нужный порт в переменные окружения
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
+
+# Сразу запускаем веб-сервер в отдельном потоке, чтобы Render увидел открытый порт
+Thread(target=run_web).start()
+
 # ==================== НАСТРОЙКИ БОТА ====================
-BOT_TOKEN = '8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk'  # Вставь сюда токен от @BotFather
+BOT_TOKEN = '8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk'  # Твой токен от @BotFather
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CARD_NUMBER = "+79775819442"  # Номер телефона для СБП или номер карты
 BANK_NAME = "Т-Банк"   # Название твоего банка
 
-# Твой ID в Telegram (можно узнать в боте @userinfobot), чтобы админка открывалась только тебе
+# Твой ID в Telegram (можно узнать в боте @userinfobot)
 ADMIN_ID = 123456789  
 
 # ==================== БАЗА ТОВАРОВ И ЛАЙФХАКОВ ====================
@@ -86,11 +89,9 @@ PRODUCTS = {
     }
 }
 
-# Временная память для заказов пользователей в текущей сессии
 user_orders = {}
 
 # ==================== ЛОГИКА БОТА ====================
-
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -109,7 +110,6 @@ def handle_text(message):
     chat_id = message.chat.id
     text = message.text
 
-    # СЕКРЕТНАЯ АДМИН-ПАНЕЛЬ С КОЛИЧЕСТВОМ ТОВАРОВ
     if text == "/admin":
         if chat_id == ADMIN_ID:
             stats = "📊 **Статистика маркетплейса:**\n\n"
@@ -123,7 +123,6 @@ def handle_text(message):
             bot.send_message(chat_id, "Маркетплейс работает в штатном режиме. Используй меню.")
         return
 
-    # 1. Обработка выбора категории
     if text in PRODUCTS:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         for product_name in PRODUCTS[text].keys():
@@ -133,12 +132,10 @@ def handle_text(message):
         bot.send_message(chat_id, f"Выбрана категория: *{text}*. Выбери товар:", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # 2. Кнопка возврата
     if text == "⬅️ В главное меню":
         start(message)
         return
 
-    # 3. Обработка нажатия на конкретный товар
     selected_product = None
     selected_category = None
     
@@ -156,7 +153,6 @@ def handle_text(message):
         price = selected_product["price"]
         secret_code = str(random.randint(1000, 9999))
         
-        # Сохраняем информацию о заказе юзера
         user_orders[chat_id] = {
             "category": selected_category,
             "product_name": text,
@@ -191,27 +187,21 @@ def handle_photo(message):
     bot.send_message(chat_id, f"🔍 Проверяю чек на сумму {price_str} руб. и код {order['code']}... Подожди.")
 
     try:
-        # Скачиваем отправленное фото с серверов Telegram
         file_info = bot.get_file(message.photo[-1].file_id)
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
         
-        # Запрос к бесплатному API распознавания текста OCR
         ocr_url = f"https://api.ocr.space/parse/imageurl?apikey=helloworld&url={file_url}&language=rus"
         response = requests.get(ocr_url).json()
         
         if response.get("ParsedResults"):
             extracted_text = response["ParsedResults"][0]["ParsedText"].lower()
             
-            # Проверяем наличие секретного случайного кода и цены на скриншоте
             if order["code"] in extracted_text and (price_str in extracted_text or "руб" in extracted_text):
-                # Проверяем, что картинка — это реальный банковский чек, а не подделка
                 if any(x in extracted_text for x in ["выполнено", "успешно", "перевод", "зачисление", "tinkoff", "sberbank", "сбербанк"]):
-                    
-                    # Извлекаем текст лайфхака из базы (используем [0], чтобы товар не удалялся и продавался бесконечно)
                     current_item = PRODUCTS[order["category"]][order["product_name"]]["items"][0]
                     
                     bot.send_message(chat_id, current_item, parse_mode="Markdown")
-                    del user_orders[chat_id] # Закрываем активный заказ
+                    del user_orders[chat_id]
                 else:
                     bot.send_message(chat_id, "❌ Система безопасности: На скриншоте не найдены маркеры банка (статус 'Успешно' или 'Выполнено').")
             else:
@@ -222,6 +212,7 @@ def handle_photo(message):
     except Exception as e:
         bot.send_message(chat_id, "Ошибка шлюза проверки чеков. Попробуй скинуть скриншот еще раз.")
 
-# Запуск постоянной работы бота
-print("Магазин лайфхаков успешно запущен и готов к работе...")
-bot.polling(none_stop=True)
+# ==================== ЗАПУСК БОТА (В САМОМ КОНЦЕ!) ====================
+if __name__ == '__main__':
+    print("Магазин лайфхаков успешно запущен и готов к работе...")
+    bot.infinity_polling()
