@@ -3,12 +3,27 @@ from telebot import types
 import random
 import requests
 
+
+import os
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Бот онлайн!"
+
+def run_web():
+    # Render сам передает нужный порт в переменные окружения
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 # ==================== НАСТРОЙКИ БОТА ====================
 BOT_TOKEN = '8678906227:AAH8jULnc8BDegqwFt-SGH2ytXeVMDAAzZk'  # Вставь сюда токен от @BotFather
 bot = telebot.TeleBot(BOT_TOKEN)
 
 CARD_NUMBER = "+79775819442"  # Номер телефона для СБП или номер карты
-BANK_NAME = "Т-Банк / Сбер"   # Название твоего банка
+BANK_NAME = "Т-Банк"   # Название твоего банка
 
 # Твой ID в Telegram (можно узнать в боте @userinfobot), чтобы админка открывалась только тебе
 ADMIN_ID = 123456789  
