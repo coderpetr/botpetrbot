@@ -3,3 +3,4 @@ requests
 pyrogram
 tgcrypto
 flask
+google-genai
