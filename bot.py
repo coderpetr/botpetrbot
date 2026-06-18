@@ -5,7 +5,7 @@ import telebot
 from telebot import types
 from flask import Flask
 from PIL import Image
-import easyocr
+
 
 # =====================================================================
 # 1. ТОКЕН И ИНИЦИАЛИЗАЦИЯ ИНСТРУМЕНТА СЧИТЫВАНИЯ ЧЕКОВ
@@ -15,7 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 # Инициализируем EasyOCR для распознавания русского и английского текста
 # gpu=False нужен, так как на бесплатном Render нет видеокарты (работает на CPU)
-reader = easyocr.Reader(['ru', 'en'], gpu=False)
+
 
 # =====================================================================
 # 2. ГОТОВЫЕ ТЕКСТЫ ДЛЯ ВЫДАЧИ ПОСЛЕ ОПЛАТЫ
