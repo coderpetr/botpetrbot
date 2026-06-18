@@ -4,21 +4,19 @@ import re
 import telebot
 from telebot import types
 from flask import Flask
-from PIL import Image
-
+import requests
 
 # =====================================================================
-# 1. ТОКЕН И ИНИЦИАЛИЗАЦИЯ ИНСТРУМЕНТА СЧИТЫВАНИЯ ЧЕКОВ
+# 1. ТОКЕНЫ И НАСТРОЙКИ АВТОРИЗАЦИИ
 # =====================================================================
 BOT_TOKEN = "8855038816:AAGZX3HG9b_ziJe-zRmCoezQ18psrzR1BDM"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Инициализируем EasyOCR для распознавания русского и английского текста
-# gpu=False нужен, так как на бесплатном Render нет видеокарты (работает на CPU)
-
+# Твой личный рабочий ключ от облачного шлюза распознавания чеков
+OCR_API_KEY = "K87579063988957" 
 
 # =====================================================================
-# 2. ГОТОВЫЕ ТЕКСТЫ ДЛЯ ВЫДАЧИ ПОСЛЕ ОПЛАТЫ
+# 2. ТЕКСТЫ ВЫДАЧИ ТОВАРОВ (МАНУАЛЫ И СХЕМЫ)
 # =====================================================================
 TEXT_DELIVERY = (
     "🎉 *Оплата подтверждена! Твой мануал по бесплатной доставке готов:*\n\n"
@@ -60,40 +58,40 @@ TEXT_BURGERS = (
     "_Приятного аппетита! Нажми /start, если захочешь купить другие схемы._"
 )
 
-# Наш каталог товаров
+# Каталог доступных товаров и цен
 PRODUCTS = {
     "delivery": {"name": "⚡️ Обход доставки Яндекс/Купер (0 руб)", "price": 10, "reply_text": TEXT_DELIVERY},
     "wb_sale": {"name": "📦 Секретный софт для ликвидаций Wildberries", "price": 10, "reply_text": TEXT_WB_SALE},
     "burgers": {"name": "🍔 Схема: Бургеры за 1 рубль", "price": 10, "reply_text": TEXT_BURGERS}
 }
 
-# Временная память выбранных товаров { user_id: "id_товара" }
+# Оперативная память для фиксации выбора пользователя { user_id: "id_товара" }
 user_orders = {}
 
 # =====================================================================
-# 3. ВЕБ-СЕРВЕР (ДЛЯ ОБХОДА БЛОКИРОВКИ RENDER)
+# 3. ВЕБ-СЕРВЕР ДЛЯ ПОДДЕРЖАНИЯ ЖИЗНИ НА RENDER
 # =====================================================================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Бот активен и готов к работе!"
+    return "Бот запущен и стабильно работает на OCR-шлюзе!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
 # =====================================================================
-# 4. ЛОГИКА ТЕЛЕГРАМ-БОТА
+# 4. ФУНКЦИОНАЛ И КЛИЕНТСКАЯ ЛОГИКА БОТА
 # =====================================================================
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_text = (
-        "🤖 *Приветствуем в Маркетплейсе приватных Схем и Абузов!*\n\n"
-        "Мы полностью автоматизировали выдачу товаров. Выбирай интересующую тему из "
-        "каталога ниже, оплачивай по указанным реквизитам и отправляй скриншот чека. "
-        "Система моментально проверит платеж и сразу выдаст тебе мануал!\n\n"
+        "🤖 *Приветствуем в Автоматическом Маркетплейсе Схем и Абузов!*\n\n"
+        "Мы полностью автоматизировали выдачу приватных мануалов. Выбирай нужную тему из "
+        "каталога ниже, оплачивай по СБП и отправляй скриншот чека прямо в чат. "
+        "Система мгновенно распознает платеж и автоматически выдаст тебе ссылку!\n\n"
         "👇 *Выбери товар для покупки:* "
     )
     
@@ -137,7 +135,7 @@ def handle_receipt(message):
     if user_id not in user_orders:
         bot.reply_to(
             message, 
-            "❌ Ты еще не выбрал товар для покупки! Напиши /start, выбери тему из списка, "
+            "❌ Ты еще не выбрал товар! Напиши /start, выбери схему из списка, "
             "оплати её и только потом присылай чек."
         )
         return
@@ -146,66 +144,68 @@ def handle_receipt(message):
     product = PRODUCTS[prod_id]
     expected_price = product['price']
 
-    status_msg = bot.reply_to(message, "⏳ Мобильная система считывает твой чек, подожди пару секунд...")
+    status_msg = bot.reply_to(message, "⏳ Безопасный шлюз считывает данные с чека, подожди пару секунд...")
 
     try:
-        # 1. Скачиваем фото чека во временный файл
+        # 1. Берем прямую безопасную ссылку на картинку с серверов самого Телеграма
         file_info = bot.get_file(message.photo[-1].file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+        # 2. Делаем мгновенный POST запрос на удаленный мощный сервер OCR.Space
+        payload = {
+            'url': file_url,
+            'apikey': OCR_API_KEY,
+            'language': 'rus',
+            'isOverlayRequired': False
+        }
         
-        image_path = f"receipt_{user_id}.jpg"
-        with open(image_path, "wb") as f:
-            f.write(downloaded_file)
+        response = requests.post('https://api.ocr.space/parse/image', data=payload, timeout=15)
+        result = response.json()
 
-        # 2. Распознаем текст с помощью EasyOCR без сторонних API-ключей
-        result = reader.readtext(image_path, detail=0)
-        raw_text = " ".join(result)
-        
-        # Удаляем временный файл сразу после сканирования
-        if os.path.exists(image_path):
-            os.remove(image_path)
-
-        print(f"[DEBUG] Распознанный текст чека: {raw_text}")
-
-        # 3. Вытаскиваем все числа из текста чека
-        numbers = re.findall(r'\b\d+\b', raw_text)
-        found_prices = [int(num) for num in numbers]
-
-        print(f"[DEBUG] Найдено чисел на картинке: {found_prices}")
-
-        # 4. Проверяем, есть ли цена нашего товара на этом чеке
-        if expected_price in found_prices:
-            try:
-                bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
-            except:
-                pass
+        # 3. Разбираем ответ от сервера распознавания
+        if result.get("OCRExitCode") == 1:
+            raw_text = result["ParsedResults"][0]["ParsedText"]
+            print(f"[DEBUG] Распознанный текст с чека: {raw_text}")
             
-            # Высылаем реальную схему покупателю
-            bot.send_message(chat_id=message.chat.id, text=product['reply_text'], parse_mode="Markdown")
-            
-            # Стираем запись об операции, покупка закрыта
-            user_orders.pop(user_id, None)
+            # Вытаскиваем все числа из текста регулярным выражением
+            numbers = re.findall(r'\b\d+\b', raw_text)
+            found_prices = [int(num) for num in numbers]
+            print(f"[DEBUG] Найденные числа: {found_prices}")
+
+            # 4. Проверяем, совпала ли цена
+            if expected_price in found_prices:
+                try:
+                    bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
+                except:
+                    pass
+                
+                # Отправляем пользователю купленный им мануал
+                bot.send_message(chat_id=message.chat.id, text=product['reply_text'], parse_mode="Markdown")
+                # Закрываем сессию покупки
+                user_orders.pop(user_id, None)
+            else:
+                bot.edit_message_text(
+                    f"❌ *Сумма не найдена.*\n"
+                    f"Выбранный товар стоит *{expected_price} руб.*, но система автоматической проверки не увидела это число на чеке.\n\n"
+                    f"Убедись, что скриншот четкий, не обрезанный и ты перевел верную сумму.",
+                    chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
+                )
         else:
-            bot.edit_message_text(
-                f"❌ *Сумма не найдена.*\n"
-                f"Выбранный товар стоит *{expected_price} руб.*, но платежная система не увидела это число на чеке.\n\n"
-                f"Убедись, что скриншот четкий, полный и ты перевел правильную сумму.",
-                chat_id=message.chat.id, message_id=status_msg.message_id, parse_mode="Markdown"
-            )
+            bot.edit_message_text("❌ Сервер не смог прочитать текст на картинке. Пожалуйста, сделай более четкий скриншот чека.", chat_id=message.chat.id, message_id=status_msg.message_id)
 
     except Exception as e:
-        print(f"[ERROR OCR]: {e}")
-        bot.edit_message_text("❌ Ошибка чтения файла. Пожалуйста, отправь скриншот чека еще раз.", chat_id=message.chat.id, message_id=status_msg.message_id)
+        print(f"[ERROR MAIN]: {e}")
+        bot.edit_message_text("❌ Ошибка обработки чека. Пожалуйста, попробуй отправить скриншот еще раз через минуту.", chat_id=message.chat.id, message_id=status_msg.message_id)
 
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     if message.text == "/start":
         return
-    bot.reply_to(message, "Пожалуйста, используй кнопки меню или отправь скриншот чека после выбора товара в /start!")
+    bot.reply_to(message, "Пожалуйста, управляй ботом через кнопки меню или отправь скриншот чека после выбора товара в /start!")
 
 # =====================================================================
-# 5. ЗАПУСК ВСЕЙ СИСТЕМЫ
+# 5. ЗАПУСК ПОТОКОВ
 # =====================================================================
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=run_flask)
@@ -213,5 +213,5 @@ if __name__ == '__main__':
     flask_thread.start()
 
     bot.remove_webhook()
-    print("Бот успешно запущен на EasyOCR!")
+    print("Бот успешно запущен на легких сетевых запросах!")
     bot.infinity_polling(allowed_updates=["message", "callback_query"])
