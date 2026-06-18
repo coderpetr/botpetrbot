@@ -82,7 +82,7 @@ def handle_payment_selection(call):
         payment_text = (
             f"🛒 *Товар:* {product['name']}\n"
             f"💵 *Сумма:* {product['price']} руб.\n\n"
-            f"💳 *Реквизиты (Сбербанк):*\n`4276 0000 0000 0000`\n\n"
+            f"💳 *Реквизиты (т-банк):*\n`79775819442`\n\n"
             f"Отправь скриншот чека прямо сюда!"
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=payment_text, parse_mode="Markdown")
